@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"runtime"
@@ -9,6 +10,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/gdamore/tcell/v2/encoding"
 	"github.com/habys/437studio/charsets"
+	"github.com/lucasb-eyer/go-colorful"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -49,17 +51,6 @@ func PrintMemUsage() {
 	fmt.Printf("\tTotalAlloc = %v MiB", bToMb(m.TotalAlloc))
 	fmt.Printf("\tSys = %v MiB", bToMb(m.Sys))
 	fmt.Printf("\tNumGC = %v\n", m.NumGC)
-}
-
-func GetChar(l Line) rune {
-	switch l.style {
-	case skinnyFat:
-		return charsets.SkinnyFatChars[l.up][l.down][l.left][l.right]
-	case singleDouble:
-		return charsets.SingleDoubleChars[l.up][l.down][l.left][l.right]
-	default:
-		return 'x'
-	}
 }
 
 func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
@@ -138,12 +129,46 @@ type RGB struct {
 	b uint8
 }
 
-type Dot struct {
-	fg   RGB
-	bg   RGB
-	line Line
-	gc   string
-	ext  string
+func dirInc(direction *uint8) {
+	*direction += 1
+	if *direction > 2 {
+		*direction = 0
+	}
+}
+
+func (dot *Dot) Inc(direction string) string {
+	switch direction {
+	case "up":
+		for {
+			dirInc(&dot.line.up)
+			if dot.line.GetChar() != 'x' {
+				break
+			}
+		}
+	case "down":
+		for {
+			dirInc(&dot.line.down)
+			if dot.line.GetChar() != 'x' {
+				break
+			}
+		}
+	case "left":
+		for {
+			dirInc(&dot.line.left)
+			if dot.line.GetChar() != 'x' {
+				break
+			}
+		}
+	case "right":
+		for {
+			dirInc(&dot.line.right)
+			if dot.line.GetChar() != 'x' {
+				break
+			}
+		}
+	}
+	dot.gc = string(dot.line.GetChar())
+	return dot.gc
 }
 
 type linestyle uint8
@@ -165,20 +190,101 @@ type Line struct {
 	right uint8
 }
 
-func main() {
-	init_x := 1000
-	init_y := 1000
+func (l Line) GetChar() rune {
+	switch l.style {
+	case skinnyFat:
+		return charsets.SkinnyFatChars[l.up][l.down][l.left][l.right]
+	case singleDouble:
+		return charsets.SingleDoubleChars[l.up][l.down][l.left][l.right]
+	default:
+		return 'x'
+	}
+}
 
-	page := make([][]Dot, init_x)
-	for i := range page {
-		page[i] = make([]Dot, init_y)
+type Dot struct {
+	fg   RGB
+	bg   RGB
+	line Line
+	gc   string
+}
+
+type Page struct {
+	dots [][]Dot
+	maxX int
+	maxY int
+	adjX int
+	adjY int
+}
+
+func (p *Page) GetDot(x, y int) *Dot {
+	return &p.dots[x+p.adjX][y+p.adjY]
+}
+
+func (p Page) Shift(x, y int) {
+	p.adjX += x
+	if p.adjX > p.maxX {
+		p.adjX = p.maxX
+	}
+	p.adjY += y
+	if p.adjY > p.maxY {
+		p.adjY = p.maxY
+	}
+}
+
+func (p Page) Draw(s tcell.Screen) {
+
+	w, h := s.Size()
+	for x := 0; x < w; x++ {
+		for y := 0; y < h; y++ {
+			white := tcell.StyleDefault.
+				Foreground(tcell.ColorWhite).Background(tcell.ColorRed)
+			emitStr(s, x+p.adjX, y+p.adjY, white, fmt.Sprint(p.dots[x][y]))
+		}
 	}
 
-	/*
-		Create two dimensional slice per frame
-		populate with a single grapheme cluster
-	*/
-	// page[0][0] = Dot{"A", RGB{255, 255, 0}, RGB{0, 0, 0}, ""}
+}
+
+func (p Page) GetStr(x, y int) string {
+	return string(p.dots[x+p.adjX][y+p.adjY].gc)
+
+}
+
+func main() {
+	file, err := os.OpenFile("logs.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.SetOutput(file)
+
+	log.Println("Hello world!")
+
+	c := colorful.Color{R: 0.313725, G: 0.478431, B: 0.721569}
+	c, err = colorful.Hex("#517AB8")
+	if err != nil {
+		log.Fatal(err)
+
+	}
+	c = colorful.Hsv(216.0, 0.56, 0.722)
+	c = colorful.Xyz(0.189165, 0.190837, 0.480248)
+	c = colorful.Xyy(0.219895, 0.221839, 0.190837)
+	c = colorful.Lab(0.507850, 0.040585, -0.370945)
+	c = colorful.Luv(0.507849, -0.194172, -0.567924)
+	c = colorful.Hcl(276.2440, 0.373160, 0.507849)
+
+	fmt.Printf("what: %v\n", c)
+	initX := 1000
+	initY := 1000
+
+	var page Page
+	page.dots = make([][]Dot, initX)
+	page.maxX = initX
+	page.maxY = initY
+	page.adjX = 500
+	page.adjY = 500
+
+	for i := range page.dots {
+		page.dots[i] = make([]Dot, initY)
+	}
 
 	shell := os.Getenv("SHELL")
 	if shell == "" {
@@ -211,7 +317,7 @@ func main() {
 	posfmt := "Mouse: %d, %d  "
 	btnfmt := "Buttons: %s"
 	keyfmt := "Keys: %s"
-	linefmt := "up: %d, down: %d, left: %d, right: %d"
+	//linefmt := "up: %d, down: %d, left: %d, right: %d"
 	// pastefmt := "Paste: [%d] %s"
 	white := tcell.StyleDefault.
 		Foreground(tcell.ColorWhite).Background(tcell.ColorRed)
@@ -219,6 +325,7 @@ func main() {
 	// mx, my := -1, -1
 	ox, oy := -1, -1
 	bx, by := -1, -1
+	// Screen size
 	w, h := s.Size()
 	lchar := '*'
 	bstr := ""
@@ -236,7 +343,9 @@ func main() {
 		emitStr(s, 2, 3, white, fmt.Sprintf(posfmt, x, y))
 		emitStr(s, 2, 4, white, fmt.Sprintf(btnfmt, bstr))
 		emitStr(s, 2, 5, white, fmt.Sprintf(keyfmt, lks))
-		emitStr(s, 2, 6, white, fmt.Sprintf(linefmt, page[x][y].line.up, page[x][y].line.down, page[x][y].line.left, page[x][y].line.right))
+		emitStr(s, 2, 6, white, fmt.Sprintf("char from array: '%s'", page.GetStr(x, y)))
+		//emitStr(s, 2, 6, white, fmt.Sprintf(linefmt, page[x][y].line.up, page[x][y].line.down, page[x][y].line.left, page[x][y].line.right))
+		//emitStr(s, 2, 6, white, fmt.Sprintf("RGB values: %.0f, %.0f, %.0f", c.R*256, c.G*256, c.B*256))
 
 		//ps := pstr
 		//if len(ps) > 26 {
@@ -259,9 +368,13 @@ func main() {
 		}
 
 		switch ev := ev.(type) {
+
+		// Detect terminal resize
 		case *tcell.EventResize:
 			s.Sync()
 			s.SetContent(w-1, h-1, 'R', nil, st)
+
+		// KeypressG
 		case *tcell.EventKey:
 			s.SetContent(w-2, h-2, ev.Rune(), nil, st)
 			if pasting {
@@ -280,7 +393,7 @@ func main() {
 				ecnt++
 				if ecnt > 1 {
 					s.Fini()
-					os.Exit(0)
+					os.Exit(1)
 				}
 			} else if ev.Key() == tcell.KeyCtrlL {
 				s.Sync()
@@ -298,19 +411,13 @@ func main() {
 						panic("failed to resume: " + err.Error())
 					}
 				}
+
+				// Pressed Space
 			} else if ev.Rune() == ' ' {
 				s.SetContent(x, y, 'X', nil, white)
-				/*
+				page.dots[x+page.adjX][y+page.adjY] = Dot{fg: RGB{255, 255, 0}, bg: RGB{0, 0, 0}, line: Line{}, gc: "X"}
 
-				   type Dot struct {
-				   	fg   RGB
-				   	bg   RGB
-				   	line Line
-				   	gc   string
-				   	ext  string
-				   }
-				*/
-				page[x][y] = Dot{RGB{255, 255, 0}, RGB{0, 0, 0}, Line{}, "X", ""}
+				// Pressed Arrow Keys
 			} else if ev.Key() == tcell.KeyUp {
 				if y > 0 {
 					y -= 1
@@ -323,58 +430,54 @@ func main() {
 				}
 			} else if ev.Key() == tcell.KeyRight {
 				x += 1
+
+				// Pressed Directional line drawing keys
 			} else if ev.Rune() == 'a' {
-				page[x][y].line.left += 1
-				if page[x][y].line.left == 3 {
-					page[x][y].line.left = 0
-				}
-				s.SetContent(x, y, GetChar(page[x][y].line), nil, white)
+				emitStr(s, x, y, white, fmt.Sprint(page.GetDot(x, y).Inc("left")))
 			} else if ev.Rune() == 'A' {
-				if page[x][y].line.left == 0 {
-					page[x][y].line.left = 2
+				if page.dots[x][y].line.left == 0 {
+					page.dots[x][y].line.left = 2
 				} else {
-					page[x][y].line.left -= 1
+					page.dots[x][y].line.left -= 1
 				}
-				s.SetContent(x, y, GetChar(page[x][y].line), nil, white)
+				curChar := page.dots[x][y].line.GetChar()
+				page.dots[x][y].gc = string(curChar)
+				s.SetContent(x, y, curChar, nil, white)
 			} else if ev.Rune() == 'w' {
-				page[x][y].line.up += 1
-				if page[x][y].line.up == 3 {
-					page[x][y].line.up = 0
-				}
-				s.SetContent(x, y, GetChar(page[x][y].line), nil, white)
+				emitStr(s, x, y, white, fmt.Sprint(page.GetDot(x, y).Inc("up")))
 			} else if ev.Rune() == 'W' {
-				if page[x][y].line.up == 0 {
-					page[x][y].line.up = 2
+				if page.dots[x][y].line.up == 0 {
+					page.dots[x][y].line.up = 2
 				} else {
-					page[x][y].line.up -= 1
+					page.dots[x][y].line.up -= 1
 				}
-				s.SetContent(x, y, GetChar(page[x][y].line), nil, white)
+				curChar := page.dots[x][y].line.GetChar()
+				page.dots[x][y].gc = string(curChar)
+				s.SetContent(x, y, curChar, nil, white)
 			} else if ev.Rune() == 'd' {
-				page[x][y].line.right += 1
-				if page[x][y].line.right == 3 {
-					page[x][y].line.right = 0
-				}
-				s.SetContent(x, y, GetChar(page[x][y].line), nil, white)
+				emitStr(s, x, y, white, fmt.Sprint(page.GetDot(x, y).Inc("right")))
 			} else if ev.Rune() == 'D' {
-				if page[x][y].line.right == 0 {
-					page[x][y].line.right = 2
+				if page.dots[x][y].line.right == 0 {
+					page.dots[x][y].line.right = 2
 				} else {
-					page[x][y].line.right -= 1
+					page.dots[x][y].line.right -= 1
 				}
-				s.SetContent(x, y, GetChar(page[x][y].line), nil, white)
+				curChar := page.dots[x][y].line.GetChar()
+				page.dots[x][y].gc = string(curChar)
+				s.SetContent(x, y, curChar, nil, white)
 			} else if ev.Rune() == 's' {
-				page[x][y].line.down += 1
-				if page[x][y].line.down == 3 {
-					page[x][y].line.down = 0
-				}
-				s.SetContent(x, y, GetChar(page[x][y].line), nil, white)
+				emitStr(s, x, y, white, fmt.Sprint(page.GetDot(x, y).Inc("down")))
 			} else if ev.Rune() == 'S' {
-				if page[x][y].line.down == 0 {
-					page[x][y].line.down = 2
+				if page.dots[x][y].line.down == 0 {
+					page.dots[x][y].line.down = 2
 				} else {
-					page[x][y].line.down -= 1
+					page.dots[x][y].line.down -= 1
 				}
-				s.SetContent(x, y, GetChar(page[x][y].line), nil, white)
+				curChar := page.dots[x][y].line.GetChar()
+				page.dots[x][y].gc = string(curChar)
+				s.SetContent(x, y, curChar, nil, white)
+			} else if ev.Rune() == 'p' {
+				page.Draw(s)
 			} else {
 				ecnt = 0
 				if ev.Rune() == 'C' || ev.Rune() == 'c' {
@@ -458,32 +561,4 @@ func main() {
 			drawSelect(s, ox, oy, bx, by, true)
 		}
 	}
-
-	// PrintMemUsage()
-
-	/*
-		fmt.Println(string(data))
-		fmt.Println(page[0][0])
-		fmt.Println(runewidth.RuneWidth('A'))
-		fmt.Println(width.LookupString("A"))
-		//fmt.Println(runewidth.RuneWidth('ன்'))
-		fmt.Println(runewidth.StringWidth("ன்"))
-		fmt.Println("ன் is multiple runes.")
-		fmt.Println(width.LookupString("ன்"))
-		fmt.Println(runewidth.RuneWidth('ｲ'))
-		fmt.Println(width.LookupString("ｲ"))
-		fmt.Println(runewidth.RuneWidth('カ'))
-		fmt.Println(width.LookupString("カ"))
-		fmt.Printf("﷽")
-		fmt.Printf("string %v\n", runewidth.StringWidth("﷽"))
-		fmt.Printf("rune %v\n", runewidth.RuneWidth('﷽'))
-
-		fmt.Printf("𒐫")
-		fmt.Printf("string %v\n", runewidth.StringWidth("𒐫"))
-		fmt.Printf("rune %v\n", runewidth.RuneWidth('𒐫'))
-
-		fmt.Printf("𒁏")
-		fmt.Printf("string %v\n", runewidth.StringWidth("𒁏"))
-		fmt.Printf("rune %v\n", runewidth.RuneWidth('𒁏'))
-	*/
 }
