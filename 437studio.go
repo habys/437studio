@@ -234,11 +234,16 @@ func (p Page) Shift(x, y int) {
 func (p Page) Draw(s tcell.Screen) {
 
 	w, h := s.Size()
+	white := tcell.StyleDefault.
+		Foreground(tcell.ColorWhite).Background(tcell.ColorRed)
+	var printString string
 	for x := 0; x < w; x++ {
 		for y := 0; y < h; y++ {
-			white := tcell.StyleDefault.
-				Foreground(tcell.ColorWhite).Background(tcell.ColorRed)
-			emitStr(s, x+p.adjX, y+p.adjY, white, fmt.Sprint(p.dots[x][y]))
+			printString = p.GetStr(x, y)
+			if printString != "" {
+				log.Printf("x: %d y: %d char: %s", x, y, printString)
+				emitStr(s, x, y, white, printString)
+			}
 		}
 	}
 
@@ -336,6 +341,7 @@ func main() {
 	x, y := 0, 0
 
 	for {
+
 		drawBox(s, 1, 1, 42, 10, white, ' ')
 		emitStr(s, 2, 2, white, "Press ESC twice to exit, C to clear.")
 		// emitStr(s, 2, 3, white, fmt.Sprintf(posfmt, mx, my))
