@@ -43,6 +43,86 @@ func bToMb(b uint64) uint64 {
 	return b / 1024 / 1024
 }
 
+func ColorScreen(s tcell.Screen) {
+	lFmt := "l: %.02f"
+	uFmt := "u: %.02f"
+	vFmt := "v: %v02f"
+	w, h := s.Size()
+	log.Println("color screen")
+	s.Clear()
+	style := defStyle
+	//c, err := colorful.Hex("#ea0064")
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	drawX := 0
+	drawY := 1
+	white := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
+EarlyExit:
+	for l := 0.0; l <= 1.0; l += .01 {
+		s.Show()
+		if Pause(s) == "break" {
+			break EarlyExit
+		}
+		drawY = 0
+		for v := -1.0; v <= 1.0; v += .05 {
+			drawX = -20
+			drawY += 1
+			if drawY >= h {
+				drawY = 1
+			}
+			for u := -1.0; u <= 1.0; u += .03 {
+				drawX += 1
+				if drawX > w {
+					drawX = 1
+				}
+				//if drawY >= h {
+				//	drawY = 1
+				//	s.Show()
+				//	if Pause(s) == "break" {
+				//		break EarlyExit
+				//	}
+				//}
+				//c := colorful.Luv(l, u, v).Clamped()
+				if drawX > 0 {
+					c := colorful.Luv(l, u, v)
+					log.Printf("LUV values: %.2f, %.2f, %.2f", l, u, v)
+					if c.IsValid() != true {
+						r, g, b, a := c.RGBA()
+						log.Printf("Invalid RGB: R%d G%d G%d A%d", r, g, b, a)
+					} else {
+						r, g, b := c.RGB255()
+						style = tcell.StyleDefault.Foreground(tcell.NewRGBColor(int32(r), int32(g), int32(b)))
+						s.SetContent(drawX, drawY, '█', nil, style)
+						emitStr(s, w-8, h-3, white, fmt.Sprintf(lFmt, l))
+						emitStr(s, w-8, h-2, white, fmt.Sprintf(uFmt, u))
+						emitStr(s, w-8, h-1, white, fmt.Sprintf(vFmt, v))
+					}
+				}
+			}
+		}
+	}
+
+	/*
+		for i = 1; i < 100; i++ {
+			for j := 1; j < 50; j++ {
+				l := (float64(i) * 3.6)
+				u := .4
+				v := ((float64(j) / 25) - 2) * -1
+				c = colorful.Luv(l, u, v)
+				log.Printf("LUV values: %.2f, %.2f, %.2f", l, u, v)
+				//log.Printf("RGB values: %v, %v, %v", c.R, c.G, c.B)
+				style = tcell.StyleDefault.Foreground(tcell.NewRGBColor(int32(c.R), int32(c.G), int32(c.B)))
+				//log.Printf("setcontent: %d", i)
+				s.SetContent(int(i), j, '█', nil, style)
+			}
+		}
+	*/
+	log.Println("show")
+	s.Show()
+	Pause(s)
+}
+
 func PrintMemUsage() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -51,6 +131,22 @@ func PrintMemUsage() {
 	fmt.Printf("\tTotalAlloc = %v MiB", bToMb(m.TotalAlloc))
 	fmt.Printf("\tSys = %v MiB", bToMb(m.Sys))
 	fmt.Printf("\tNumGC = %v\n", m.NumGC)
+}
+
+func Pause(s tcell.Screen) string {
+	for {
+		ev := s.PollEvent()
+		switch ev := ev.(type) {
+		case *tcell.EventKey:
+			if ev.Key() == tcell.KeyEscape {
+				log.Println("Break!")
+				return "break"
+			} else if ev.Rune() != '0' {
+				log.Println(ev.Rune())
+				return ""
+			}
+		}
+	}
 }
 
 func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
@@ -263,20 +359,6 @@ func main() {
 
 	log.Println("Hello world!")
 
-	c := colorful.Color{R: 0.313725, G: 0.478431, B: 0.721569}
-	c, err = colorful.Hex("#517AB8")
-	if err != nil {
-		log.Fatal(err)
-
-	}
-	c = colorful.Hsv(216.0, 0.56, 0.722)
-	c = colorful.Xyz(0.189165, 0.190837, 0.480248)
-	c = colorful.Xyy(0.219895, 0.221839, 0.190837)
-	c = colorful.Lab(0.507850, 0.040585, -0.370945)
-	c = colorful.Luv(0.507849, -0.194172, -0.567924)
-	c = colorful.Hcl(276.2440, 0.373160, 0.507849)
-
-	fmt.Printf("what: %v\n", c)
 	initX := 1000
 	initY := 1000
 
@@ -324,8 +406,7 @@ func main() {
 	keyfmt := "Keys: %s"
 	//linefmt := "up: %d, down: %d, left: %d, right: %d"
 	// pastefmt := "Paste: [%d] %s"
-	white := tcell.StyleDefault.
-		Foreground(tcell.ColorWhite).Background(tcell.ColorRed)
+	white := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorRed)
 
 	// mx, my := -1, -1
 	ox, oy := -1, -1
@@ -419,6 +500,11 @@ func main() {
 				}
 
 				// Pressed Space
+				//} else if ev.Key() == tcell.KeyCtrlC {
+			} else if ev.Rune() == 'm' {
+				ColorScreen(s)
+				s.Clear()
+				page.Draw(s)
 			} else if ev.Rune() == ' ' {
 				s.SetContent(x, y, 'X', nil, white)
 				page.dots[x+page.adjX][y+page.adjY] = Dot{fg: RGB{255, 255, 0}, bg: RGB{0, 0, 0}, line: Line{}, gc: "X"}
